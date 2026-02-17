@@ -4,9 +4,14 @@
 # In[1]:
 
 
-from flask import Flask, Markup, render_template
+import os
+
+from flask import Flask, Markup, jsonify, render_template, request
+
+from news_updater import update_stock_news
 
 app = Flask(__name__)
+app.config['CRON_TOKEN'] = os.getenv('CRON_TOKEN')
 
 labels = [
     'JAN', 'FEB', 'MAR', 'APR',
@@ -54,6 +59,18 @@ def pie():
     pie_values = values
     return render_template('pie_chart.html', title='Bitcoin Monthly Price in USD', max=17000, set=zip(values, labels, colors))
 
+
+
+@app.route('/tasks/update-stock-news', methods=['POST'])
+def update_stock_news_task():
+    expected_token = app.config.get('CRON_TOKEN')
+    provided_token = request.headers.get('X-Cron-Token')
+
+    if expected_token and provided_token != expected_token:
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
+
+    result = update_stock_news()
+    return jsonify(result), 200
 
 
 if __name__ == '__main__':
