@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manager Agent Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f7f8fb; color: #1f2937; }
+    .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+    .card { background: white; border-radius: 10px; padding: 16px; box-shadow: 0 1px 6px rgba(0,0,0,0.08); }
+    .row { display: flex; gap: 8px; margin-bottom: 10px; }
+    input, button { padding: 8px; border-radius: 6px; border: 1px solid #d1d5db; }
+    button { background: #2563eb; color: white; border: none; cursor: pointer; }
+    .pill { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 12px; margin-right: 8px; }
+    .todo { background: #e5e7eb; }
+    .in_progress { background: #bfdbfe; }
+    .blocked { background: #fecaca; }
+    .done { background: #bbf7d0; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #e5e7eb; text-align: left; padding: 8px; font-size: 14px; }
+    #chatLog { max-height: 260px; overflow-y: auto; background: #f9fafb; padding: 8px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Manager Agent Dashboard (Side-loaded App)</h1>
+  <p>Independent manager-agent app running from this branch.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Project Setup</h3>
+      <div class="row">
+        <input id="objective" style="flex:1" placeholder="Describe your project objective" />
+      </div>
+      <div class="row">
+        <input id="roles" style="flex:1" value="Data Engineer, Scrum Master, Data Scientist, Software Engineer" />
+        <button onclick="setObjective()">Create Plan</button>
+      </div>
+      <div class="row">
+        <input id="pollInterval" type="number" value="5" min="2" max="600" />
+        <button onclick="setIntervalConfig()">Set Interval</button>
+      </div>
+      <p id="objectiveSummary"></p>
+      <div id="totals"></div>
+      <p id="azureStatus"></p>
+    </div>
+
+    <div class="card">
+      <h3>Manager Chat</h3>
+      <div id="chatLog"></div>
+      <div class="row" style="margin-top:8px;">
+        <input id="chatInput" style="flex:1" placeholder="Ask manager for update" />
+        <button onclick="sendChat()">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-top: 16px;">
+    <div class="card">
+      <h3>Tasks</h3>
+      <table>
+        <thead><tr><th>Title</th><th>Role</th><th>Status</th><th>Progress</th><th>Assignee</th></tr></thead>
+        <tbody id="taskBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Sub-agents</h3>
+      <table>
+        <thead><tr><th>ID</th><th>Role</th><th>Active Task</th></tr></thead>
+        <tbody id="agentBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+  async function post(url, data) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return await res.json();
+  }
+
+  async function setObjective() {
+    const objective = document.getElementById('objective').value;
+    const roles = document.getElementById('roles').value.split(',').map(v => v.trim()).filter(Boolean);
+    await post('/api/objective', { objective, roles });
+    refresh();
+  }
+
+  async function setIntervalConfig() {
+    const poll_interval_seconds = parseInt(document.getElementById('pollInterval').value, 10);
+    await post('/api/config', { poll_interval_seconds });
+    refresh();
+  }
+
+  async function sendChat() {
+    const message = document.getElementById('chatInput').value;
+    if (!message) return;
+    await post('/api/chat', { message });
+    document.getElementById('chatInput').value = '';
+    refresh();
+  }
+
+  async function refresh() {
+    const data = await fetch('/api/state').then(r => r.json());
+    document.getElementById('objectiveSummary').innerText = `Objective: ${data.objective || 'Not set'} | Monitor every ${data.poll_interval_seconds}s`;
+    document.getElementById('totals').innerHTML = `
+      <span class="pill todo">Todo: ${data.totals.todo || 0}</span>
+      <span class="pill in_progress">In Progress: ${data.totals.in_progress || 0}</span>
+      <span class="pill blocked">Blocked: ${data.totals.blocked || 0}</span>
+      <span class="pill done">Done: ${data.totals.done || 0}</span>
+    `;
+
+    document.getElementById('taskBody').innerHTML = data.tasks.map(task => `
+      <tr>
+        <td>${task.title}</td><td>${task.role}</td>
+        <td><span class="pill ${task.status}">${task.status}</span></td>
+        <td>${task.progress}%</td><td>${task.assignee_id || '-'}</td>
+      </tr>
+    `).join('');
+
+    document.getElementById('agentBody').innerHTML = data.sub_agents.map(agent =>
+      `<tr><td>${agent.id}</td><td>${agent.role}</td><td>${agent.active_task_id || '-'}</td></tr>`
+    ).join('');
+
+    document.getElementById('chatLog').innerHTML = data.chat.map(entry =>
+      `<p><b>${entry.speaker}:</b> ${entry.text}</p>`
+    ).join('');
+
+    document.getElementById('azureStatus').innerText = data.azure_configured
+      ? `Azure configured (${data.azure.deployment}, ${data.azure.api_version})`
+      : 'Azure credentials missing. Using built-in local planner.';
+  }
+
+  refresh();
+  setInterval(refresh, 3000);
+</script>
+</body>
+</html>
